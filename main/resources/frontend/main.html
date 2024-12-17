@@ -1,0 +1,301 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Main Page</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      background-color: #f2f2f2;
+      padding: 20px;
+    }
+    .container {
+      background-color: white;
+      padding: 20px;
+      border-radius: 5px;
+      box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 20px;
+    }
+    th, td {
+      border: 1px solid black;
+      padding: 8px;
+      text-align: left;
+    }
+    tr.selected {
+      background-color: #a2d5f2;
+    }
+    button {
+      padding: 10px 15px;
+      margin-right: 10px;
+      border: none;
+      border-radius: 5px;
+      cursor: pointer;
+    }
+    button:disabled {
+      background-color: #cccccc;
+      cursor: default;
+    }
+    #fileOperations {
+      margin-bottom: 20px;
+    }
+  </style>
+</head>
+<body>
+<div class="container">
+  <div style="text-align: right;">
+    <button onclick="logout()">Log out</button>
+  </div>
+  <div id="fileOperations">
+    <input type="file" id="fileInput" style="display: none;" onchange="uploadFile()">
+    <button onclick="document.getElementById('fileInput').click()">Upload File</button>
+    <button id="changeFileName" disabled onclick="openChangeNameForm()">Change File Name</button>
+    <button id="compressFile" disabled onclick="openCompressForm()">Compress File</button>
+    <button id="deleteFile" disabled onclick="deleteFile()">Delete File</button>
+  </div>
+  <table id="filesTable">
+    <thead>
+    <tr>
+      <th>File ID</th>
+      <th>File Name</th>
+      <th>Creation Date</th>
+      <th>Content Size</th>
+    </tr>
+    </thead>
+    <tbody>
+    <!-- File rows will be added here -->
+    </tbody>
+  </table>
+  <div id="changeNameForm" style="display:none;">
+    <input type="text" id="newFileName" placeholder="New file name">
+    <button onclick="changeFileName()">Submit</button>
+    <button onclick="closeChangeNameForm()">Close</button>
+  </div>
+  <div id="compressForm" style="display:none;">
+    <select id="compressionAlgorithm">
+      <!-- Options will be dynamically populated -->
+    </select>
+    <button onclick="compressFile()">Submit</button>
+    <button onclick="closeCompressForm()">Close</button>
+  </div>
+</div>
+
+<script>
+  document.addEventListener('DOMContentLoaded', async () => {
+    const userId = localStorage.getItem('userId');
+    if (userId) {
+      const response = await fetch(`http://localhost:8080/files/user/${userId}`);
+      if (response.ok) {
+        const files = await response.json();
+        const tableBody = document.getElementById('filesTable').getElementsByTagName('tbody')[0];
+        files.forEach(file => {
+          let row = tableBody.insertRow();
+          row.insertCell(0).innerHTML = file.id;
+          row.insertCell(1).innerHTML = file.fileName;
+          row.insertCell(2).innerHTML = new Date(file.creationDate).toLocaleString();
+          row.insertCell(3).innerHTML = formatBytes(file.contentSize);
+        });
+      } else {
+        alert('Failed to fetch files');
+      }
+
+      // Fetch available compressors for the compression form
+      const compressorsResponse = await fetch('http://localhost:8080/compressors/available');
+      if (compressorsResponse.ok) {
+        const compressors = await compressorsResponse.json();
+        const compressionAlgorithmSelect = document.getElementById('compressionAlgorithm');
+        compressors.forEach(compressor => {
+          const option = document.createElement('option');
+          option.value = compressor.extension; // Use extension as the value
+          option.textContent = compressor.shortName; // Display shortName
+          compressionAlgorithmSelect.appendChild(option);
+        });
+      } else {
+        alert('Failed to fetch available compressors');
+      }
+    } else {
+      window.location.href = 'login.html'; // Redirect to login if no userModel ID is found
+    }
+  });
+
+  function logout() {
+    localStorage.removeItem('userId');
+    window.location.href = 'login.html';
+  }
+
+  const filesTable = document.getElementById('filesTable');
+  filesTable.addEventListener('click', (event) => {
+    if (event.target.tagName === 'TD') {
+      const row = event.target.parentElement;
+      if (row.classList.contains('selected')) {
+        row.classList.remove('selected');
+      } else {
+        document.querySelectorAll('.selected').forEach(r => r.classList.remove('selected'));
+        row.classList.add('selected');
+      }
+      updateButtonStates();
+    }
+  });
+
+  function closeChangeNameForm() {
+    document.getElementById('changeNameForm').style.display = 'none';
+  }
+
+  function closeCompressForm() {
+    document.getElementById('compressForm').style.display = 'none';
+  }
+
+  function formatBytes(bytes, decimals = 2) {
+    if (bytes === 0) return '0 Bytes';
+
+    const k = 1024;
+    const dm = decimals < 0 ? 0 : decimals;
+    const sizes = ['Bytes', 'KB', 'MB'];
+
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(dm)) + ' ' + sizes[i];
+  }
+
+  function updateButtonStates() {
+    const selectedRows = document.querySelectorAll('.selected');
+    const hasSelection = selectedRows.length > 0;
+    document.getElementById('changeFileName').disabled = !hasSelection;
+    document.getElementById('compressFile').disabled = !hasSelection;
+    document.getElementById('deleteFile').disabled = !hasSelection;
+  }
+
+  async function uploadFile() {
+    const fileInput = document.querySelector('input[type="file"]');
+    const formData = new FormData();
+    formData.append('file', fileInput.files[0]);
+    formData.append('userId', localStorage.getItem('userId'));
+
+    const response = await fetch('http://localhost:8080/files/upload', {
+      method: 'POST',
+      body: formData
+    });
+
+    if (response.ok) {
+      alert("File uploaded successfully!");
+      await fetchFiles(); // Refresh the table
+    } else {
+      alert("File upload failed!");
+    }
+  }
+
+  function openChangeNameForm() {
+    document.getElementById('changeNameForm').style.display = 'block';
+  }
+
+  async function changeFileName() {
+    const selectedRow = document.querySelector('.selected');
+    if (!selectedRow) {
+      alert('No file selected');
+      return;
+    }
+
+    const fileId = selectedRow.cells[0].innerText;
+    const newFileName = document.getElementById('newFileName').value;
+
+    const response = await fetch(`http://localhost:8080/files/${fileId}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: newFileName
+    });
+
+    if (response.ok) {
+      await fetchFiles();
+    } else {
+      alert('Failed to change file name');
+    }
+
+    document.getElementById('changeNameForm').style.display = 'none';
+  }
+
+  async function deleteFile() {
+    const selectedRow = document.querySelector('.selected');
+    if (!selectedRow) {
+      alert('No file selected');
+      return;
+    }
+
+    const fileId = selectedRow.cells[0].innerText;
+
+    const response = await fetch(`http://localhost:8080/files/${fileId}`, {
+      method: 'DELETE'
+    });
+
+    if (response.ok) {
+      await fetchFiles();
+    } else {
+      alert('Failed to delete file');
+    }
+  }
+
+  function openCompressForm() {
+    document.getElementById('compressForm').style.display = 'block';
+  }
+
+  async function compressFile() {
+    const selectedRow = document.querySelector('.selected');
+    if (!selectedRow) {
+      alert('No file selected');
+      return;
+    }
+
+    const fileId = selectedRow.cells[0].innerText;
+    const algorithm = document.getElementById('compressionAlgorithm').value;
+
+    const response = await fetch(`http://localhost:8080/files/compress/${fileId}?algorithm=${algorithm}`, {
+      method: 'POST'
+    });
+
+    if (response.ok) {
+      const blob = await response.blob();
+      let filename = 'compressed_file'; // Default filename
+
+      // Extract filename from the Content-Disposition header
+      const contentDisposition = response.headers.get('Content-Disposition');
+      if (contentDisposition) {
+        const matches = contentDisposition.match(/filename\*?=(?:UTF-8'')?([^;]+)/i);
+        if (matches && matches.length > 1) {
+          // If filename is URL-encoded, decode it
+          filename = decodeURIComponent(matches[1].replace(/['"]/g, ''));
+        }
+      }
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(url);
+      a.remove();
+    } else {
+      alert('Failed to compress file');
+    }
+
+    document.getElementById('compressForm').style.display = 'none';
+  }
+
+  async function fetchFiles() {
+    const userId = localStorage.getItem('userId');
+    const response = await fetch(`http://localhost:8080/files/user/${userId}`);
+    const files = await response.json();
+    const tableBody = document.getElementById('filesTable').getElementsByTagName('tbody')[0];
+    tableBody.innerHTML = ''; // Clear existing rows
+    files.forEach(file => {
+      let row = tableBody.insertRow();
+      row.insertCell(0).innerHTML = file.id;
+      row.insertCell(1).innerHTML = file.fileName;
+      row.insertCell(2).innerHTML = new Date(file.creationDate).toLocaleString();
+      row.insertCell(3).innerHTML = formatBytes(file.contentSize);
+    });
+  }
+</script>
+</body>
+</html>
